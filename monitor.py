@@ -5,13 +5,14 @@ import yfinance as yf
 import json
 import sqlite3
 import os
+from datetime import datetime, timedelta
 from google import genai
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, PushMessageRequest, TextMessage
 )
 
 # ==========================================
-# 1. 設定區 (從 GitHub Secrets 讀取)
+# 1. 設定區 (從 GitHub Secrets 或 .env 讀取)
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
@@ -52,59 +53,41 @@ def get_stock_price_status(stock_id):
         start_p = hist['Close'].iloc[0]
         end_p = hist['Close'].iloc[-1]
         change_pct = ((end_p - start_p) / start_p) * 100
-        if change_pct > 10: return f"⚠️ 股價已反應 ({change_pct:.1f}%)"
-        elif change_pct < 2: return f"🔥 股價尚未反應 ({change_pct:.1f}%)"
+        if change_pct > 7: return f"⚠️ 股價已反應 ({change_pct:.1f}%)"
+        elif change_pct < 1: return f"🔥 股價尚未反應 ({change_pct:.1f}%)"
         else: return f"小幅波動 ({change_pct:.1f}%)"
     except:
         return "股價查詢失敗"
 
 def ai_analyze_news(title):
     """
-    優化版：支援多模型切換與 PCB 產業優先邏輯
+    優化版：支援多模型降級，優先使用你測試成功的 flash-latest
     """
-    # 針對你的研究興趣優化 Prompt
     prompt = f"""
     分析台股新聞：'{title}'
-    若涉及 PCB (載板、HDI、CCL)、AI 伺服器或半導體設備，請優先分析。
-    請嚴格以 JSON 格式回傳，不要包含任何 Markdown 標記：
+    若涉及 PCB 載板、AI 伺服器、或 2026 年展望請優先分析。
+    請嚴格以 JSON 回傳，不要包含 Markdown 標籤：
     {{
         "decision": "ANALYZE" 或 "SKIP",
-        "stock_id": "4位數字代碼",
+        "stock_id": "4位代碼",
         "sentiment_score": -1.0 到 1.0,
         "reason": "簡短分析理由",
-        "lead_indicator": "2026年展望重點"
+        "lead_indicator": "展望重點"
     }}
     """
-    
-    # 定義你的環境中可用的模型順序
-    # 將你剛測試成功的 "models/gemini-flash-latest" 放在最前面
-    models_to_try = [
-        "models/gemini-flash-latest", 
-        "models/gemini-2.0-flash", 
-        "models/gemini-2.5-flash"
-    ]
+    # 模型優先順序：使用你剛測試成功的最新穩定版
+    models_to_try = ["models/gemini-flash-latest", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
     
     for model_name in models_to_try:
         try:
-            print(f"📡 正在使用 {model_name} 分析新聞...")
-            response = genai_client.models.generate_content(
-                model=model_name, 
-                contents=prompt
-            )
-            
+            response = genai_client.models.generate_content(model=model_name, contents=prompt)
             if response and response.text:
-                # 清理內容，防止 Markdown 語法干擾 JSON 解析
-                clean_content = re.sub(r'```json\n?|```', '', response.text).strip()
-                return clean_content
-                
+                # 移除可能存在的 Markdown 區塊
+                return re.sub(r'```json\n?|```', '', response.text).strip()
         except Exception as e:
             if "429" in str(e):
-                print(f"⚠️ {model_name} 額度耗盡，嘗試下一個模型...")
+                print(f"⚠️ {model_name} 額度滿了，嘗試下一個...")
                 continue
-            else:
-                print(f"❌ {model_name} 發生非額度錯誤: {e}")
-                continue
-                
     return '{"decision": "SKIP"}'
 
 def save_to_db(data, entry, current_price):
@@ -115,9 +98,10 @@ def save_to_db(data, entry, current_price):
             INSERT OR IGNORE INTO signals (timestamp, stock_id, sentiment_score, title, reason, price_at_msg, link)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (time.strftime('%Y-%m-%d %H:%M:%S'), data.get("stock_id"), data.get("sentiment_score"), entry.title, data.get("reason"), current_price, entry.link))
+        success = cursor.rowcount > 0
         conn.commit()
         conn.close()
-        return True
+        return success
     except:
         return False
 
@@ -128,20 +112,32 @@ def push_to_line(message):
         line_bot_api.push_message(push_request)
 
 # ==========================================
-# 3. 主程序 (單次執行)
+# 3. 主程序 (加入時間過濾邏輯)
 # ==========================================
 
 def start_monitoring():
     init_db()
-    print("🚀 開始掃描新聞...")
-    rss_url = "https://news.google.com/rss/search?q=台股+漲價+展望+擴產&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+    print(f"🚀 [{datetime.now().strftime('%H:%M')}] 開始掃描最新產業新聞...")
+    
+    # 搜尋關鍵字優化：針對你的興趣，並加入 when:12h 確保新聞新鮮度
+    keywords = "PCB+載板+AI伺服器+半導體+展望+when:12h"
+    rss_url = f"https://news.google.com/rss/search?q={keywords}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+    
     feed = feedparser.parse(rss_url)
     
-    # 只看最新的 5 則新聞
-    for entry in feed.entries[:5]:
-        raw_analysis = ai_analyze_news(entry.title)
+    # 設定篩選時間：只看 12 小時內發佈的新聞
+    time_threshold = datetime.now() - timedelta(hours=12)
+    
+    for entry in feed.entries:
         try:
-            clean_json = re.sub(r'```json\n?|```', '', raw_analysis).strip()
+            # 轉換新聞發佈時間
+            pub_date = datetime.fromtimestamp(time.mktime(entry.published_parsed))
+            
+            if pub_date < time_threshold:
+                continue # 太舊的新聞直接跳過
+            
+            raw_analysis = ai_analyze_news(entry.title)
+            clean_json = raw_analysis.strip()
             data = json.loads(clean_json)
             
             if data.get("decision") == "ANALYZE" and data.get("stock_id"):
@@ -152,7 +148,7 @@ def start_monitoring():
                 current_price = yf.Ticker(ticker).history(period="1d")['Close'].iloc[-1]
                 price_status = get_stock_price_status(stock_id)
                 
-                # 存檔 (若回傳 True 代表是新新聞，才推播)
+                # 存檔並推播
                 if save_to_db(data, entry, current_price):
                     sentiment_emoji = "📈" if data.get("sentiment_score", 0) > 0 else "📉"
                     report = (
@@ -163,9 +159,10 @@ def start_monitoring():
                         f"📊 位階：{price_status}\n🔗 {entry.link}"
                     )
                     push_to_line(report)
-                    print(f"✅ 已處理並推播：{stock_id}")
+                    print(f"✅ 已推播新新聞：{stock_id}")
+                    
         except Exception as e:
-            print(f"解析失敗: {e}")
+            print(f"解析新聞 '{entry.title[:10]}...' 失敗: {e}")
 
 if __name__ == "__main__":
     start_monitoring()
