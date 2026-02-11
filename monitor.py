@@ -59,12 +59,53 @@ def get_stock_price_status(stock_id):
         return "股價查詢失敗"
 
 def ai_analyze_news(title):
-    prompt = f"分析台股新聞：'{title}'，請以 JSON 回傳：decision(SKIP/ANALYZE), stock_id(4位代碼), sentiment_score(-1到1), reason, lead_indicator。"
-    try:
-        response = genai_client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-        return response.text.strip()
-    except:
-        return '{"decision": "SKIP"}'
+    """
+    優化版：支援多模型切換與 PCB 產業優先邏輯
+    """
+    # 針對你的研究興趣優化 Prompt
+    prompt = f"""
+    分析台股新聞：'{title}'
+    若涉及 PCB (載板、HDI、CCL)、AI 伺服器或半導體設備，請優先分析。
+    請嚴格以 JSON 格式回傳，不要包含任何 Markdown 標記：
+    {{
+        "decision": "ANALYZE" 或 "SKIP",
+        "stock_id": "4位數字代碼",
+        "sentiment_score": -1.0 到 1.0,
+        "reason": "簡短分析理由",
+        "lead_indicator": "2026年展望重點"
+    }}
+    """
+    
+    # 定義你的環境中可用的模型順序
+    # 將你剛測試成功的 "models/gemini-flash-latest" 放在最前面
+    models_to_try = [
+        "models/gemini-flash-latest", 
+        "models/gemini-2.0-flash", 
+        "models/gemini-2.5-flash"
+    ]
+    
+    for model_name in models_to_try:
+        try:
+            print(f"📡 正在使用 {model_name} 分析新聞...")
+            response = genai_client.models.generate_content(
+                model=model_name, 
+                contents=prompt
+            )
+            
+            if response and response.text:
+                # 清理內容，防止 Markdown 語法干擾 JSON 解析
+                clean_content = re.sub(r'```json\n?|```', '', response.text).strip()
+                return clean_content
+                
+        except Exception as e:
+            if "429" in str(e):
+                print(f"⚠️ {model_name} 額度耗盡，嘗試下一個模型...")
+                continue
+            else:
+                print(f"❌ {model_name} 發生非額度錯誤: {e}")
+                continue
+                
+    return '{"decision": "SKIP"}'
 
 def save_to_db(data, entry, current_price):
     try:
