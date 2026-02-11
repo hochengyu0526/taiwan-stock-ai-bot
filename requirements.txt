@@ -1,5 +1,5 @@
 feedparser
 yfinance
-google-generativeai
-line-bot-sdk-python
+google-genai
+line-bot-sdk
 pandas
