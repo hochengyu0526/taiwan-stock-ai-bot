@@ -13,9 +13,9 @@ from linebot.v3.messaging import (
 # ==========================================
 # 1. 設定區 (從 GitHub Secrets 讀取)
 # ==========================================
-GEMINI_API_KEY = os.getenv("AIzaSyBS3Hbk9ogK1Znsb2rpepONWGFLLYXxz-U")
-LINE_ACCESS_TOKEN = os.getenv("GjWZ8/mBShArXbhBFWlRNQI4Qa+vUC225CufLL4dM2DEmAojScUI2sIwom/29h2/GgvSK3ksg1ygsh6jKL4BoZJaZXP0FpjzGMJi1ZEHV/Cq9JQ5q0hRD3i0uR+OLaOXwziuzp6E8Xw3qXDt7St+8QdB04t89/1O/w1cDnyilFU=")
-LINE_USER_ID = os.getenv("Ue9293a27a082fe4b4b05e2129829ae14")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
+LINE_USER_ID = os.getenv("LINE_USER_ID")
 
 # 初始化客戶端
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
