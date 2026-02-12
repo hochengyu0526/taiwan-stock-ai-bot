@@ -120,7 +120,7 @@ def start_monitoring():
     print(f"🚀 [{datetime.now().strftime('%H:%M')}] 開始掃描最新產業新聞...")
     
     # 搜尋關鍵字優化：針對你的興趣，並加入 when:12h 確保新聞新鮮度
-    keywords = "PCB+載板+AI伺服器+半導體+展望+when:12h"
+    keywords = "PCB+載板+AI+電源+電力+低軌衛星+機器人+電動車+台積電+輝達+特斯拉+google+川普+聯準會+AI伺服器+半導體+展望+when:12h"
     rss_url = f"https://news.google.com/rss/search?q={keywords}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
     
     feed = feedparser.parse(rss_url)
