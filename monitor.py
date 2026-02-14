@@ -4,6 +4,7 @@ import feedparser
 import yfinance as yf
 import json
 import sqlite3
+import urllib.parse
 import os
 from datetime import datetime, timedelta
 from google import genai
