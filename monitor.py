@@ -117,52 +117,81 @@ def push_to_line(message):
 
 def start_monitoring():
     init_db()
-    print(f"🚀 [{datetime.now().strftime('%H:%M')}] 開始掃描最新產業新聞...")
+    print(f"🚀 [{datetime.now().strftime('%H:%M')}] 啟動監測系統...")
     
-    # 搜尋關鍵字優化：針對你的興趣，並加入 when:12h 確保新聞新鮮度
-    keywords = "美股+台股+PCB+載板+AI+電源+電力+低軌衛星+機器人+電動車+台積電+輝達+特斯拉+google+川普+聯準會+AI伺服器+半導體+展望+when:12h"
+    # 1. 關鍵字優化：改為 OR 邏輯，增加捕捉率
+    # 只要標題中出現清單中任何一個詞，就會被抓取
+    keywords_list = [
+        "PCB", "載板", "ABF", "欣興", "南電", "景碩", "臻鼎", 
+        "AI伺服器", "散熱", "水冷", "台積電", "輝達", "NVIDIA",
+        "2026展望", "半導體", "機器人", "電源"
+    ]
+    # 將清單組成 (A OR B OR C) 的格式
+    query_str = f"({' OR '.join(keywords_list)})"
+    
+    # 加上 when:12h 確保只抓最新 12 小時內的新聞
+    keywords = f"{query_str}+when:12h"
     rss_url = f"https://news.google.com/rss/search?q={keywords}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
     
+    print(f"📡 搜尋字串: {keywords}")
     feed = feedparser.parse(rss_url)
-    
-    # 設定篩選時間：只看 12 小時內發佈的新聞
+    print(f"📊 搜尋完成，初篩發現 {len(feed.entries)} 則候選新聞")
+
+    # 設定篩選時間：嚴格只看 12 小時內
     time_threshold = datetime.now() - timedelta(hours=12)
+    news_count = 0
     
     for entry in feed.entries:
         try:
             # 轉換新聞發佈時間
             pub_date = datetime.fromtimestamp(time.mktime(entry.published_parsed))
             
+            # 時間過濾
             if pub_date < time_threshold:
-                continue # 太舊的新聞直接跳過
+                continue 
             
+            print(f"🔍 正在分析：{entry.title[:30]}...")
+
+            # 呼叫 AI 分析
             raw_analysis = ai_analyze_news(entry.title)
-            clean_json = raw_analysis.strip()
-            data = json.loads(clean_json)
+            data = json.loads(raw_analysis)
             
+            # 判斷 AI 是否建議分析且有代碼
             if data.get("decision") == "ANALYZE" and data.get("stock_id"):
                 stock_id = re.search(r'\d{4}', str(data.get("stock_id"))).group()
                 
-                # 取得當前股價與狀態
+                # --- 修正後的股價抓取 (相容週末) ---
                 ticker = f"{stock_id}.TW"
-                current_price = yf.Ticker(ticker).history(period="1d")['Close'].iloc[-1]
-                price_status = get_stock_price_status(stock_id)
+                stock = yf.Ticker(ticker)
+                # 使用 period="5d" 確保週末也能抓到上週五的最後收盤價
+                hist = stock.history(period="5d")
                 
-                # 存檔並推播
-                if save_to_db(data, entry, current_price):
-                    sentiment_emoji = "📈" if data.get("sentiment_score", 0) > 0 else "📉"
-                    report = (
-                        f"【🚨 產業領先指標】\n📰 {entry.title}\n\n"
-                        f"🎯 標的：{stock_id} ({data.get('sentiment_score')} {sentiment_emoji})\n"
-                        f"💰 股價：{current_price:.2f}\n"
-                        f"💡 分析：{data.get('reason')}\n"
-                        f"📊 位階：{price_status}\n🔗 {entry.link}"
-                    )
-                    push_to_line(report)
-                    print(f"✅ 已推播新新聞：{stock_id}")
+                if not hist.empty:
+                    current_price = hist['Close'].iloc[-1]
+                    price_status = get_stock_price_status(stock_id)
+                    
+                    # 存檔並推播 (save_to_db 會自動檢查 link 是否重複)
+                    if save_to_db(data, entry, current_price):
+                        sentiment_emoji = "📈" if data.get("sentiment_score", 0) > 0 else "📉"
+                        report = (
+                            f"【🚨 產業領先指標】\n📰 {entry.title}\n\n"
+                            f"🎯 標的：{stock_id} ({data.get('sentiment_score')} {sentiment_emoji})\n"
+                            f"💰 收盤價：{current_price:.2f}\n"
+                            f"💡 分析：{data.get('reason')}\n"
+                            f"📊 位階：{price_status}\n🔗 {entry.link}"
+                        )
+                        push_to_line(report)
+                        print(f"✅ [發送成功] {stock_id}")
+                        news_count += 1
+                    else:
+                        print(f"⏭️ [跳過] 連結已存在資料庫：{entry.title[:10]}...")
+                else:
+                    print(f"⚠️ [跳過] 無法取得 {stock_id} 的股價數據")
                     
         except Exception as e:
-            print(f"解析新聞 '{entry.title[:10]}...' 失敗: {e}")
+            print(f"❌ 解析新聞失敗: {str(e)}")
+
+    print(f"🏁 監測任務結束，本次共推送 {news_count} 則報告。")
 
 if __name__ == "__main__":
     start_monitoring()
