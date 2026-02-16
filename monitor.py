@@ -78,10 +78,11 @@ def ai_analyze_news(title):
     }}
     """
     # 模型優先順序：使用你剛測試成功的最新穩定版
-    models_to_try = ["models/gemini-2.0-flash",     # 目前最快的穩定版
-            "models/gemini-1.5-flash",     # 額度最鬆的備援
-            "models/gemini-1.5-flash-8b",  # 極速輕量版
-            "models/gemini-1.5-pro"        # 強大的推理版
+    models_to_try = ["gemini-2.0-flash",       # 最優先
+            "gemini-1.5-flash",       # 穩定備援
+            "gemini-1.5-flash-8b",    # 極速版
+            "gemini-1.5-pro",         # 強大邏輯版
+            "flash-latest"            # 終極備援
                     ]
     
     for model_name in models_to_try:
