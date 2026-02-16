@@ -78,7 +78,12 @@ def ai_analyze_news(title):
     }}
     """
     # 模型優先順序：使用你剛測試成功的最新穩定版
-    models_to_try = ["models/gemini-flash-latest", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
+    models_to_try = ["models/gemini-3-flash-preview",   
+            "models/gemini-3-pro-preview",
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-pro",
+            "models/gemini-2.0-flash",
+            "models/gemini-flash-latest"]
     
     for model_name in models_to_try:
         try:
