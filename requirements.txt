@@ -1,5 +1,6 @@
-feedparser
-yfinance
-google-genai
+flask
 line-bot-sdk
-pandas
+google-genai
+yfinance
+requests
+gunicorn  
