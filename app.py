@@ -93,12 +93,10 @@ def get_custom_report(stock_id, mode):
 
         # 🚀 階層式模型清單 (根據你提供的可用清單排序)
         models_to_try = [
-            "models/gemini-3-flash-preview",    # 優先使用最強模型
-            "models/gemini-3-pro-preview",
-            "models/gemini-2.5-flash",
-            "models/gemini-2.5-pro",
-            "models/gemini-2.0-flash",
-            "models/gemini-flash-latest"        # 最終穩定備援
+            "models/gemini-2.0-flash",     # 目前最快的穩定版
+            "models/gemini-1.5-flash",     # 額度最鬆的備援
+            "models/gemini-1.5-flash-8b",  # 極速輕量版
+            "models/gemini-1.5-pro"        # 強大的推理版
         ]
 
         ai_analysis = ""
@@ -169,3 +167,4 @@ def send_reply(event, text):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
