@@ -16,7 +16,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 app = Flask(__name__)
 
-# --- 設定區 ---
+# --- 設定區 (請確保 Render 的 Environment 變數已填寫) ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
@@ -30,7 +30,8 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # ==========================================
 
 def init_db():
-    """初始化 SQLite 資料庫"""
+    """初始化 SQLite 資料庫 - 確保資料表存在"""
+    print("📦 正在初始化資料庫...")
     conn = sqlite3.connect('stock_robot.db')
     cursor = conn.cursor()
     cursor.execute('''
@@ -41,6 +42,10 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+    print("✅ 資料庫表 user_states 已就緒")
+
+# 🔥 關鍵修正：將初始化放在全域，確保 Gunicorn 啟動時也會執行
+init_db()
 
 def save_user_mode(user_id, mode):
     """儲存使用者的模式選擇"""
@@ -104,14 +109,14 @@ def get_custom_report(stock_id, mode):
                投信：██░░░░░░░░ (買/賣力道)
             3. 總結：籌碼集中度分析。
             """
-        else: # 基本面分析 (你的原始 PCB/AI 邏輯)
+        else: # 基本面分析
             prompt = f"""
-            你現在是專精台股電子產業的資深分析師。
+            你現在是專精台股電子產業（特別是 PCB 與 AI 供應鏈）的資深分析師。
             請針對股票 {company_name}({stock_id}) 分析 2026 年基本面：
             1. 【外資評價】目標價與評等。
-            2. 【PCB/AI 佈局】2026 擴產或競爭力。
+            2. 【PCB/AI 佈局】2026 擴產或競爭力（如載板製程）。
             3. 【未來增長】預估 2026 年 EPS 與增長率 (%)。
-            結論：成長潛力。
+            結論：成長潛力評估。
             """
 
         # 呼叫 Gemini
@@ -147,7 +152,7 @@ def handle_message(event):
     user_id = event.source.user_id
     user_msg = event.message.text.strip()
     
-    # A. 處理選單切換模式 (需與 LINE 圖文選單按鈕文字一致)
+    # A. 處理選單切換模式
     modes = ["基本面分析", "估值分析", "技術面分析", "籌碼面分析"]
     if user_msg in modes:
         save_user_mode(user_id, user_msg)
@@ -158,7 +163,7 @@ def handle_message(event):
     # B. 處理股票查詢
     if re.match(r'^\d{4}$', user_msg):
         current_mode = get_user_mode(user_id)
-        # 先回覆一個「處理中」訊息增加使用者體驗
+        # 由於分析需時間，Render 免費版可能會慢，這裡建議先在 Console 印出進度
         report = get_custom_report(user_msg, current_mode)
         send_reply(event, report)
 
@@ -174,6 +179,6 @@ def send_reply(event, text):
         )
 
 if __name__ == "__main__":
-    init_db() # 初始化資料庫
+    # 本地端執行時仍保留此進入點
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
