@@ -7,24 +7,15 @@ from flask import Flask, request, abort
 from google import genai
 import yfinance as yf
 from google.genai import types
-from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
-)
-from linebot.v3.webhook import WebhookHandler
-from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 # ==========================================
-# 1. 環境與路徑初始化 (關鍵修正)
+# 1. 環境與路徑初始化 (絕對路徑鎖定)
 # ==========================================
-
-# 取得目前程式檔案所在的絕對路徑，確保 SQLite 不會迷路
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'stock_robot.db')
 
 def init_db():
-    """初始化 SQLite 資料庫 - 鎖定絕對路徑"""
-    print(f"📦 正在初始化資料庫，路徑: {DB_PATH}")
+    """確保資料表在 Render 啟動時即存在"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -35,19 +26,25 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
-    print("✅ 資料庫表 user_states 已確認存在")
+    print(f"✅ 資料庫已初始化: {DB_PATH}")
 
-# 🔥 在 Flask 啟動前強制執行初始化，避開 Gunicorn 進入點問題
 init_db()
 
 app = Flask(__name__)
 
-# --- 設定區 ---
+# --- API 設定 ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 
+# 使用 2026 最新版 genai Client
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
+
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
+from linebot.v3.webhook import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+
 line_config = Configuration(access_token=LINE_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
@@ -56,7 +53,6 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # ==========================================
 
 def save_user_mode(user_id, mode):
-    """儲存使用者的模式選擇"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('INSERT OR REPLACE INTO user_states (user_id, last_mode) VALUES (?, ?)', (user_id, mode))
@@ -64,7 +60,6 @@ def save_user_mode(user_id, mode):
     conn.close()
 
 def get_user_mode(user_id):
-    """讀取使用者的模式選擇，預設為基本面分析"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('SELECT last_mode FROM user_states WHERE user_id = ?', (user_id,))
@@ -73,13 +68,11 @@ def get_user_mode(user_id):
     return result[0] if result else "基本面分析"
 
 # ==========================================
-# 3. 客製化分析邏輯 (依模式生成 Prompt)
+# 3. 核心分析邏輯 (多模型降級版本)
 # ==========================================
 
 def get_custom_report(stock_id, mode):
-    """根據模式調用 Gemini 進行特定分析"""
-    print(f"\n🎯 模式: {mode} | 目標: {stock_id}")
-    
+    """具備多模型 Fallback 的深度分析"""
     ticker_str = f"{stock_id}.TW"
     stock = yf.Ticker(ticker_str)
     
@@ -87,51 +80,54 @@ def get_custom_report(stock_id, mode):
         info = stock.info
         company_name = info.get('longName') or info.get('shortName') or stock_id
         price = info.get('currentPrice', 'N/A')
-        pe = info.get('trailingPE', 0)
         
-        # 依模式定義專屬 Prompt
+        # 依模式生成 Prompt
         if mode == "估值分析":
-            prompt = f"""
-            你現在是精算分析師。請分析股票 {company_name}({stock_id}) 的估值。
-            請依據以下格式回覆：
-            * 以 2025 年預估 EPS [數值] 搭配合理本益比 [倍數] 倍，合理股價為 [價格]
-            * 以 2026 年預估 EPS [數值] 搭配合理本益比 [倍數] 倍，合理股價為 [價格]
-            結論：目前位階(低估/合理/高估)。
-            """
+            prompt = f"分析 {company_name}({stock_id}) 2025-2026 EPS 預估與合理位階。"
         elif mode == "技術面分析":
-            prompt = f"""
-            你現在是技術分析專家。請分析股票 {company_name}({stock_id}) 的 K 線狀態。
-            請條列呈現：支撐位、壓力位、均線狀態(月線/季線)、指標訊號(KDJ/RSI)。
-            最後給予短線多空結論。
-            """
+            prompt = f"分析 {company_name}({stock_id}) 的支撐壓力位與 KDJ/RSI 指標。"
         elif mode == "籌碼面分析":
-            prompt = f"""
-            你現在是籌碼分析師。請分析股票 {company_name}({stock_id}) 的法人動向。
-            1. 詳述外資與投信近一週買賣趨勢。
-            2. 使用 ASCII 符號 (█) 製作簡易的外資/投信力道圖。
-            3. 總結籌碼集中度。
-            """
+            prompt = f"分析 {company_name}({stock_id}) 外資投信動向，並用 ASCII 畫出量能圖。"
         else:
-            prompt = f"""
-            你現在是專精台股電子產業（PCB 與 AI 供應鏈）的分析師。
-            請針對股票 {company_name}({stock_id}) 分析 2026 年基本面、擴產進度與 EPS 成長預測。
-            """
+            prompt = f"分析 {company_name}({stock_id}) 2026 年 PCB 與 AI 供應鏈基本面展望。"
 
-        response = genai_client.models.generate_content(
-            model="models/gemini-2.0-flash", 
-            contents=prompt,
-            config=types.GenerateContentConfig(tools=[{'google_search': {}}])
-        )
-        ai_analysis = response.text if response.text else "無法生成報告。"
+        # 🚀 階層式模型清單 (根據你提供的可用清單排序)
+        models_to_try = [
+            "models/gemini-3-flash-preview",    # 優先使用最強模型
+            "models/gemini-3-pro-preview",
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-pro",
+            "models/gemini-2.0-flash",
+            "models/gemini-flash-latest"        # 最終穩定備援
+        ]
+
+        ai_analysis = ""
+        for model_name in models_to_try:
+            try:
+                print(f"📡 嘗試使用模型: {model_name}")
+                response = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(tools=[{'google_search': {}}])
+                )
+                if response and response.text:
+                    ai_analysis = response.text
+                    print(f"✅ {model_name} 分析成功！")
+                    break
+            except Exception as inner_e:
+                print(f"⚠️ {model_name} 失敗: {inner_e}")
+                continue # 嘗試下一個模型
+
+        if not ai_analysis:
+            ai_analysis = "目前 AI 流量過載，請稍後再試。"
 
     except Exception as e:
-        print(f"❌ 錯誤: {e}")
-        ai_analysis = f"分析失敗。原因: {type(e).__name__}"
+        ai_analysis = f"資料抓取失敗: {e}"
 
     return f"【{mode}】\n📊 {stock_id} {company_name}\n💰 現價: {price}\n\n{ai_analysis}"
 
 # ==========================================
-# 4. LINE Webhook 路由
+# 4. LINE Webhook 處理
 # ==========================================
 
 @app.route("/callback", methods=['POST'])
@@ -149,14 +145,12 @@ def handle_message(event):
     user_id = event.source.user_id
     user_msg = event.message.text.strip()
     
-    # A. 模式切換邏輯
     modes = ["基本面分析", "估值分析", "技術面分析", "籌碼面分析"]
     if user_msg in modes:
         save_user_mode(user_id, user_msg)
-        send_reply(event, f"✅ 已切換至【{user_msg}】模式\n請輸入 4 位數代碼（如：3037）")
+        send_reply(event, f"✅ 已切換至【{user_msg}】模式")
         return
 
-    # B. 股票查詢邏輯
     if re.match(r'^\d{4}$', user_msg):
         current_mode = get_user_mode(user_id)
         report = get_custom_report(user_msg, current_mode)
