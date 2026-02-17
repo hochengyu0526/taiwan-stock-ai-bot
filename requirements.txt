@@ -1,7 +1,8 @@
 flask
 line-bot-sdk
-google-genai
+google-genai>=0.3.0
 yfinance
 requests
 gunicorn  
 python-dotenv
+feedparser
