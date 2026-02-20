@@ -9,13 +9,12 @@ import yfinance as yf
 from google.genai import types
 
 # ==========================================
-# 1. 環境與路徑初始化 (絕對路徑鎖定)
+# 1. 環境與路徑初始化
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'stock_robot.db')
 
 def init_db():
-    """確保資料表在 Render 啟動時即存在"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -37,7 +36,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 
-# 使用 2026 最新版 genai Client
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
@@ -67,16 +65,34 @@ def get_user_mode(user_id):
     conn.close()
     return result[0] if result else "基本面分析"
 
+# 🔥 新增：檢查資料庫狀態的路由
+@app.route("/check_db")
+def check_db():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM user_states')
+        count = cursor.fetchone()[0]
+        conn.close()
+        return f"📊 目前資料庫共有 {count} 筆使用者設定資料。"
+    except Exception as e:
+        return f"❌ 查詢失敗: {str(e)}"
+
 # ==========================================
-# 3. 核心分析邏輯 (多模型降級版本)
+# 3. 核心分析邏輯 (修正 UnboundLocalError)
 # ==========================================
 
 def get_custom_report(stock_id, mode):
-    """具備多模型 Fallback 的深度分析"""
+    # 🚀 關鍵修正：先給預設值，確保 return 時變數一定存在
+    company_name = stock_id
+    price = "N/A"
+    ai_analysis = "分析暫時無法生成"
+    
     ticker_str = f"{stock_id}.TW"
     stock = yf.Ticker(ticker_str)
     
     try:
+        # 嘗試抓取 yfinance 資料
         info = stock.info
         company_name = info.get('longName') or info.get('shortName') or stock_id
         price = info.get('currentPrice', 'N/A')
@@ -91,14 +107,13 @@ def get_custom_report(stock_id, mode):
         else:
             prompt = f"分析 {company_name}({stock_id}) 2026 年 PCB 與 AI 供應鏈基本面展望。"
 
-        # 🚀 階層式模型清單 (根據你提供的可用清單排序)
+        # 備援模型清單
         models_to_try = [
-            "models/gemini-2.0-flash", 
-            "models/gemini-flash-latest", 
-            "models/gemini-2.5-flash"
+            "gemini-2.0-flash", 
+            "gemini-1.5-flash-latest", 
+            "gemini-1.5-pro-latest"
         ]
 
-        ai_analysis = ""
         for model_name in models_to_try:
             try:
                 print(f"📡 嘗試使用模型: {model_name}")
@@ -113,13 +128,11 @@ def get_custom_report(stock_id, mode):
                     break
             except Exception as inner_e:
                 print(f"⚠️ {model_name} 失敗: {inner_e}")
-                continue # 嘗試下一個模型
-
-        if not ai_analysis:
-            ai_analysis = "目前 AI 流量過載，請稍後再試。"
+                continue 
 
     except Exception as e:
-        ai_analysis = f"資料抓取失敗: {e}"
+        print(f"❌ yfinance 或邏輯出錯: {e}")
+        ai_analysis = f"資料抓取失敗或代碼錯誤。"
 
     return f"【{mode}】\n📊 {stock_id} {company_name}\n💰 現價: {price}\n\n{ai_analysis}"
 
@@ -166,6 +179,3 @@ def send_reply(event, text):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
-
