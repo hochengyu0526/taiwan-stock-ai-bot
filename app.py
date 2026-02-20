@@ -83,8 +83,9 @@ def check_db():
 # ==========================================
 
 def get_custom_report(stock_id, mode):
-    # 🚀 關鍵修正：先給預設值，確保 return 時變數一定存在
-    company_name = stock_id
+    """具備變數安全與多模型備援的分析邏輯"""
+    # 🚀 第一步：立刻初始化所有變數，給予預設值 (放在 try 之外)
+    company_name = stock_id  
     price = "N/A"
     ai_analysis = "分析暫時無法生成"
     
@@ -94,26 +95,21 @@ def get_custom_report(stock_id, mode):
     try:
         # 嘗試抓取 yfinance 資料
         info = stock.info
-        company_name = info.get('longName') or info.get('shortName') or stock_id
-        price = info.get('currentPrice', 'N/A')
+        if info:
+            company_name = info.get('longName') or info.get('shortName') or stock_id
+            price = info.get('currentPrice', 'N/A')
         
         # 依模式生成 Prompt
-        if mode == "估值分析":
-            prompt = f"分析 {company_name}({stock_id}) 2025-2026 EPS 預估與合理位階。"
-        elif mode == "技術面分析":
-            prompt = f"分析 {company_name}({stock_id}) 的支撐壓力位與 KDJ/RSI 指標。"
-        elif mode == "籌碼面分析":
-            prompt = f"分析 {company_name}({stock_id}) 外資投信動向，並用 ASCII 畫出量能圖。"
-        else:
-            prompt = f"分析 {company_name}({stock_id}) 2026 年 PCB 與 AI 供應鏈基本面展望。"
+        prompt = f"分析 {company_name}({stock_id}) 的{mode}。請針對 2026 年展望進行分析。"
 
-        # 備援模型清單
+        # 備援模型清單 (修正名稱格式)
         models_to_try = [
             "gemini-2.0-flash", 
             "gemini-1.5-flash-latest", 
             "gemini-1.5-pro-latest"
         ]
 
+        # 嘗試調用 AI
         for model_name in models_to_try:
             try:
                 print(f"📡 嘗試使用模型: {model_name}")
@@ -131,9 +127,10 @@ def get_custom_report(stock_id, mode):
                 continue 
 
     except Exception as e:
-        print(f"❌ yfinance 或邏輯出錯: {e}")
-        ai_analysis = f"資料抓取失敗或代碼錯誤。"
+        print(f"❌ yfinance 抓取發生問題: {e}")
+        ai_analysis = f"資料抓取失敗，請確認代碼 {stock_id} 是否正確。"
 
+    # 🚀 第二步：現在 return 絕對不會出錯，因為所有變數在最開頭都已經定義過值了
     return f"【{mode}】\n📊 {stock_id} {company_name}\n💰 現價: {price}\n\n{ai_analysis}"
 
 # ==========================================
@@ -179,3 +176,4 @@ def send_reply(event, text):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
