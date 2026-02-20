@@ -118,8 +118,8 @@ def get_custom_report(stock_id, mode):
     # 備援模型清單
     models_to_try = [
         "gemini-2.0-flash", 
-        "gemini-1.5-flash-latest", 
-        "gemini-1.5-pro-latest"
+        "gemini-1.5-flash", 
+        "gemini-1.5-pro"
     ]
 
     # 嘗試調用 AI
@@ -188,5 +188,6 @@ def send_reply(event, text):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
