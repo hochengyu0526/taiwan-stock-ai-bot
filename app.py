@@ -83,55 +83,67 @@ def check_db():
 # ==========================================
 
 def get_custom_report(stock_id, mode):
-    """具備變數安全與多模型備援的分析邏輯"""
-    # 🚀 第一步：立刻初始化所有變數，給予預設值 (放在 try 之外)
-    company_name = stock_id  
+    """具備變數安全與多模型備援的分析邏輯 (修正重複顯示問題)"""
+    # 🚀 第一步：初始化變數，預設給予空值或 N/A
+    company_name = ""  # 預設為空，避免出現 2308 2308
     price = "N/A"
     ai_analysis = "分析暫時無法生成"
     
-    ticker_str = f"{stock_id}.TW"
-    stock = yf.Ticker(ticker_str)
-    
+    # 嘗試抓取 yfinance 資料 (包含上市 .TW 與 上櫃 .TWO 的簡單判斷)
     try:
-        # 嘗試抓取 yfinance 資料
+        # 先嘗試上市股票
+        stock = yf.Ticker(f"{stock_id}.TW")
         info = stock.info
-        if info:
-            company_name = info.get('longName') or info.get('shortName') or stock_id
-            price = info.get('currentPrice', 'N/A')
         
-        # 依模式生成 Prompt
-        prompt = f"分析 {company_name}({stock_id}) 的{mode}。請針對 2026 年展望進行分析。"
+        # 如果上市抓不到 (例如是上櫃公司)，嘗試上櫃後綴
+        if not info or 'longName' not in info:
+            stock = yf.Ticker(f"{stock_id}.TWO")
+            info = stock.info
 
-        # 備援模型清單 (修正名稱格式)
-        models_to_try = [
-            "gemini-2.0-flash", 
-            "gemini-1.5-flash-latest", 
-            "gemini-1.5-pro-latest"
-        ]
-
-        # 嘗試調用 AI
-        for model_name in models_to_try:
-            try:
-                print(f"📡 嘗試使用模型: {model_name}")
-                response = genai_client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(tools=[{'google_search': {}}])
-                )
-                if response and response.text:
-                    ai_analysis = response.text
-                    print(f"✅ {model_name} 分析成功！")
-                    break
-            except Exception as inner_e:
-                print(f"⚠️ {model_name} 失敗: {inner_e}")
-                continue 
+        if info and 'currentPrice' in info:
+            # 抓取公司名稱 (優先取中文或長名稱)
+            company_name = info.get('longName') or info.get('shortName') or ""
+            price = info.get('currentPrice', 'N/A')
+            print(f"✅ 成功抓取資料: {company_name}, 價格: {price}")
+        else:
+            print(f"⚠️ yfinance 沒抓到具體資訊 (可能被 Rate Limited)")
 
     except Exception as e:
         print(f"❌ yfinance 抓取發生問題: {e}")
-        ai_analysis = f"資料抓取失敗，請確認代碼 {stock_id} 是否正確。"
 
-    # 🚀 第二步：現在 return 絕對不會出錯，因為所有變數在最開頭都已經定義過值了
-    return f"【{mode}】\n📊 {stock_id} {company_name}\n💰 現價: {price}\n\n{ai_analysis}"
+    # 🚀 第二步：依模式生成 Prompt (如果沒名字就只用 ID)
+    target_name = f"{company_name}({stock_id})" if company_name else stock_id
+    prompt = f"分析 {target_name} 的{mode}。請針對 2026 年展望進行分析。"
+
+    # 備援模型清單
+    models_to_try = [
+        "gemini-2.0-flash", 
+        "gemini-1.5-flash-latest", 
+        "gemini-1.5-pro-latest"
+    ]
+
+    # 嘗試調用 AI
+    for model_name in models_to_try:
+        try:
+            print(f"📡 嘗試使用模型: {model_name}")
+            response = genai_client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(tools=[{'google_search': {}}])
+            )
+            if response and response.text:
+                ai_analysis = response.text
+                print(f"✅ {model_name} 分析成功！")
+                break
+        except Exception as inner_e:
+            print(f"⚠️ {model_name} 失敗: {inner_e}")
+            continue 
+
+    # 🚀 第三步：組合回傳訊息
+    # 如果 company_name 有值，就顯示 "2308 台達電"；沒值就只顯示 "2308"
+    name_display = f" {company_name}" if company_name else ""
+    
+    return f"【{mode}】\n📊 {stock_id}{name_display}\n💰 現價: {price}\n\n{ai_analysis}"
 
 # ==========================================
 # 4. LINE Webhook 處理
@@ -176,4 +188,5 @@ def send_reply(event, text):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
