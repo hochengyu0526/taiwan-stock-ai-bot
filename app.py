@@ -69,9 +69,9 @@ def get_custom_report(stock_id, mode):
     # 2. AI 分析：使用你清單中確認的準確名稱
     # 順序：Gemini 3 (預覽版) -> 2.0 Flash (主力) -> Flash Latest (保底)
     models_to_try = [
-        "models/gemini-3-flash-preview", 
         "models/gemini-2.0-flash", 
-        "models/gemini-flash-latest"
+            "models/gemini-flash-latest", 
+            "models/gemini-2.5-flash"
     ]
 
     target = f"{company_name}({stock_id})" if company_name else stock_id
@@ -178,3 +178,4 @@ def send_reply(event, text):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
