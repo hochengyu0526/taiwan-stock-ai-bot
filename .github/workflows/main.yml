@@ -16,16 +16,27 @@ jobs:
           python-version: '3.10'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run Monitor
+        
+      # 1. 執行原本的 LINE 推播監控
+      - name: Run Original Monitor
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        run: python monitor.py
-      - name: Commit DB
+        run: python bot_app/monitor.py  # 💡 指向新路徑
+
+      # 2. 執行新的大盤與台積電數據收集 (純 DB)
+      - name: Run Market & TSMC Collector
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python data_monitor/market_tsmc.py  # 💡 指向新路徑
+
+      # 3. 同步提交兩個資料庫檔案
+      - name: Commit DBs
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "action@github.com"
-          git add stock_robot.db
-          git commit -m "Update DB" || exit 0
+          # 💡 同時追蹤兩個資料庫檔案
+          git add stock_robot.db market_tsmc.db
+          git commit -m "Update DBs (Bot & Market)" || exit 0
           git push
