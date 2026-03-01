@@ -66,7 +66,9 @@ def ai_analyze_news(title):
     """
     
     # 優先使用你之前測試成功的 Flash 模型
-    models_to_try = ["models/gemini-2.0-flash", "models/gemini-flash-latest"]
+    models_to_try = ["models/gemini-2.0-flash", 
+            "models/gemini-flash-latest", 
+            "models/gemini-2.5-flash"]
     
     for model_name in models_to_try:
         try:
