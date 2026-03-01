@@ -1,8 +1,8 @@
 name: Hourly Stock Bot
 on:
   schedule:
-    - cron: '0 */12 * * *'
-  workflow_dispatch:
+    - cron: '0 */12 * * *' # 每 12 小時執行一次
+  workflow_dispatch: # 允許手動執行
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -17,26 +17,26 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
         
-      # 1. 執行原本的 LINE 推播監控
+      # 1. 執行 LINE 機器人 (注意路徑)
       - name: Run Original Monitor
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        run: python bot_app/monitor.py  # 💡 指向新路徑
+        run: python bot_app/monitor.py
 
-      # 2. 執行新的大盤與台積電數據收集 (純 DB)
+      # 2. 執行大盤與台積電收集器 (注意路徑)
       - name: Run Market & TSMC Collector
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python data_monitor/market_tsmc.py  # 💡 指向新路徑
+        run: python data_monitor/market_tsmc.py
 
-      # 3. 同步提交兩個資料庫檔案
+      # 3. 提交更新後的資料庫
       - name: Commit DBs
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "action@github.com"
-          # 💡 同時追蹤兩個資料庫檔案
+          # 同時追蹤兩個資料庫檔案
           git add stock_robot.db market_tsmc.db
           git commit -m "Update DBs (Bot & Market)" || exit 0
           git push
